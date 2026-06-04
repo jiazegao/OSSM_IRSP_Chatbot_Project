@@ -66382,14 +66382,14 @@ ers over renters, and local governments
 paid for the infrastructure the sub-
 divisions required: roads, water and 
 sewer lines, fire and police protection. 
-By insuring loans for up to 95 percent 
+By insuring loans for up to 95 percent
 of the value of a house, the Federal 
 Housing Administration (FHA) made 
-it easy for builders to construct low-​
+it easy for builders to construct low-
 cost homes and for people to purchase 
 
-Levittown  Identical mass-​produced them.
-houses in Levittown, New York, and Initially, the contracts for houses in 
+Levittown Identical mass-produced them.
+houses in Levittown, New York, and Initially, the contracts for houses in
 other suburbs across the country Levittown specifically excluded “mem-
 provided veterans and their families 
 with affordable homes. bers of other than the Caucasian race.” 
@@ -66435,7 +66435,7 @@ By 1960, for the first time in history, more African Americans were living
 in urban areas than in rural areas. As blacks moved into cities, however, many 
 white residents left for the suburbs. Between 1950 and 1960, some 3.6 mil-
 lion whites left the nation’s largest cities for suburban neighborhoods (“white 
-flight”), while 4.5 million blacks moved into the cities.
+flight”), while 4.5 million blacks moved into the cities.
 
 Through organizations such as the National Association for the Advance-
 ment of Colored People (NAACP), the Congress of Racial Equality (CORE), 
@@ -66649,19 +66649,19 @@ usahistoryfull11_ch28_1318-1367.indd   1336 08/10/18   10:41 PM
 
 
 
-Cracks in the Picture Window    1337
+Cracks in the Picture Window  1337
 
 solving social problems. He reminded readers that the nation had yet to erad-
-icate poverty, especially among minorities in inner cities; female-​led house-
+icate poverty, especially among minorities in inner cities; female-led house-
 holds; Mexican American migrant farmworkers; Native Americans; and rural 
 southerners, both black and white.
 
-poverty amid prosperity  Uncritical praise for the “throw-
+poverty amid prosperity Uncritical praise for the “throw-
 away” culture of consumption masked the nation’s chronic poverty amid its 
 mythic plenty. In 1959, a quarter of the population had no financial assets, 
 and more than half had no savings accounts or credit cards. Poverty afflicted 
 nearly half of African Americans, compared to only a quarter of whites. At 
-least 40 million people had incomes below the poverty line during the 1950s.
+least 40 million people had incomes below the poverty line during the 1950s.
 
 The “promised land” in the North was not perfect. Because those who 
 left the South were often undereducated, poor, and black, they were regu-
@@ -66670,7 +66670,7 @@ states in the North, Midwest, and Far West were not as blatantly discrim-
 inatory as in the South, African Americans still encountered racism and 
 discrimination.
 
-Family on relief  Many African American families who migrated from the South to the 
+Family on relief. Many African American families who migrated from the South to the
 Midwest became a part of the marginalized population in Chicago, dependent on public 
 housing and experiencing the North’s forms of racism.
 
@@ -66678,18 +66678,18 @@ usahistoryfull11_ch28_1318-1367.indd   1337 08/10/18   10:41 PM
 
 
 
-1338    CHAPTER 28    America in the Fifties
+1338  CHAPTER 28  America in the Fifties
 
-literature as social criticism  Many critics, writers, and 
+literature as social criticism Many critics, writers, and
 artists rejected America’s social complacency and worship of consumerism. 
 Playwright Thornton Wilder labeled young adults of the fifties the “Silent 
-Generation” because of their self-​centered outlook, and writer Norman Mailer 
+Generation” because of their self-centered outlook, and writer Norman Mailer
 said the 1950s was “one of the worst decades in the history of man” because 
 so many Americans embraced a bland conformity. The most powerful novels 
 of the postwar period emphasized the individual’s struggle for survival amid 
 the smothering forces of mass society. Books such as James Jones’s From Here 
 to Eternity (1951), Ralph Ellison’s Invisible Man (1952), Saul Bellow’s Seize 
-the Day (1956),  J.  D.  Salinger’s Catcher in the Rye (1951), William Styron’s 
+the Day (1956), J. D. Salinger’s Catcher in the Rye (1951), William Styron’s
 Lie Down in Darkness (1951), and John Updike’s Rabbit, Run (1961) feature 
 restless, tormented souls who can find neither contentment nor respect in a 
 superficial world.
@@ -86039,5 +86039,5 @@ When processing this text, you must adhere to the following strict historical ex
    - Use bulleted lists for chronological breakdowns, key historical figures, and strategic impacts to ensure high scannability.
 
 7. OUTPUT STYLE & CONSTRAINTS
-   - Do not explicitly mention, reference, or imply that you are analyzing a provided text or context. Avoid phrases like "According to the text," "Based on the source," or "In the provided context." Integrate the facts seamlessly as your own direct knowledge.
+   - Do not explicitly mention, reference, or imply that you are analyzing a provided text, textbook, or context. Avoid phrases like "According to the text," "Based on the source," or "In the provided context." Integrate the facts seamlessly as your own direct knowledge.
    - Always respond in English unless the user explicitly requests otherwise.

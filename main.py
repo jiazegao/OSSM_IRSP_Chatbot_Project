@@ -1,21 +1,27 @@
+import re
 import streamlit as st
 import json
 import time
 from openai import OpenAI
 
-# API Settings --------------------------------------------------
+# API Settings ----------------------------------------------------
 client = OpenAI(base_url = "https://api.deepseek.com",
-                api_key = "sk-5a2343a17c5345669c3969a781d922b0")
+                api_key = st.secrets["OPENAI_API_KEY"])
 
-# Multi-Chat Management ------------------------------------------------
+# Functions and Constants -------------------------------------------
+textbooks = []
+textbook_paths = ["Textbooks/CompArch.txt",
+                  "Textbooks/USHist.txt",
+                  "Textbooks/DS.txt"]
+subject_titles = ["Computer Architecture",
+                  "US History",
+                  "Data Structures"]
+RAG_IDs = {}
+RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
+                "US History": {"temp": 0.0, "top_p": 1.0},
+                "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "max", "TM": "enabled"}}
 
-# Initialize chats -----------
-if "chats" not in st.session_state:
-    st.session_state.chats = []
-if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = -1
-
-# Create a new chat -------
+# Create a new chat
 def new_chat(switch = True):
     new_id = len(st.session_state.chats)
     st.session_state.chats.append({
@@ -29,43 +35,7 @@ def new_chat(switch = True):
     if switch:
         st.session_state.current_chat_id = new_id
 
-# Retrieve chat history
-if len(st.session_state.chats) == 0:
-    with open("chat_history.json", "r", encoding="utf-8") as file:
-        try:
-            st.session_state.chats = json.load(file)
-            st.session_state.current_chat_id = 0
-        except json.decoder.JSONDecodeError:
-            st.session_state.chats = []
-            st.session_state.current_chat_id = -1
-            new_chat(True)
-
-# Sidebar content ---------
-with st.sidebar:
-    st.button("➕ New chat", use_container_width=True, on_click=new_chat)
-
-    st.markdown("---")
-    st.caption("Your conversations")
-
-    # Show existing chats, highlight current
-    for chat in st.session_state.chats:
-        btn_label = chat["title"]
-        if chat["id"] == st.session_state.current_chat_id:
-            btn_label = f"**{btn_label}**"
-        if st.button(btn_label, key=chat["id"], use_container_width=True):
-            st.session_state.current_chat_id = chat["id"]
-            st.rerun()
-
-# RAG Settings -------------------------------------------------
-textbooks = []
-textbook_paths = ["Textbooks/CompArch.txt",
-                  "Textbooks/USHist.txt"]
-subject_titles = ["Computer Architecture",
-                  "US History"]
-RAG_IDs = {}
-RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
-                "US History": {"temp": 0.0, "top_p": 1.0}}
-
+# Retrieve RAG properties
 def getRAGPreset(item, id):
     global RAG_IDs, RAG_Settings
     if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
@@ -78,6 +48,71 @@ def getRAGPreset(item, id):
         return "disabled"
     return None
 
+# Cleanup latex notation
+def getCleanedLatex(string):
+    if not isinstance(string, str):
+        return string
+    string = re.sub(r'\\{1,2}\[(.*?)\\{1,2}\]', r'$$\1$$', string, flags=re.DOTALL)
+    string = re.sub(r'\(\((.*?)\)\)', r'$\1$', string, flags=re.DOTALL)
+    string = re.sub(r'\\{1,2}\((.*?)\\{1,2}\)', r'$\1$', string, flags=re.DOTALL)
+    return string
+
+# Multi-Chat Management ------------------------------------------------
+
+# Initialize chats
+if "chats" not in st.session_state:
+    st.session_state.chats = []
+if "current_chat_id" not in st.session_state:
+    st.session_state.current_chat_id = -1
+if "last_switch_time" not in st.session_state:
+    st.session_state.last_switch_time = time.time()
+
+# Retrieve chat history
+if len(st.session_state.chats) == 0:
+    with open("chat_history.json", "r", encoding="utf-8") as file:
+        try:
+            st.session_state.chats = json.load(file)
+            st.session_state.current_chat_id = 0
+        except json.decoder.JSONDecodeError:
+            st.session_state.chats = []
+            st.session_state.current_chat_id = -1
+            new_chat(True)
+
+# Sidebar content
+with st.sidebar:
+    st.button("➕ New chat", use_container_width=True, on_click=new_chat)
+
+    # Subject-specific chats
+    st.markdown("---")
+    st.caption("Subjects")
+
+    # Show existing chats, highlight current
+    for chat in st.session_state.chats:
+        if chat["title"] in subject_titles:
+            btn_label = chat["title"]
+            if chat["id"] == st.session_state.current_chat_id:
+                btn_label = f"**{btn_label}**"
+            if st.button(btn_label, key=chat["id"], use_container_width=True):
+                st.session_state.current_chat_id = chat["id"]
+                st.session_state.last_switch_time = time.time()
+                st.rerun()
+
+    # Personal chats
+    st.markdown("---")
+    st.caption("Your conversations")
+
+    # Show existing chats, highlight current
+    for chat in st.session_state.chats:
+        if chat["title"] not in subject_titles:
+            btn_label = chat["title"]
+            if chat["id"] == st.session_state.current_chat_id:
+                btn_label = f"**{btn_label}**"
+            if st.button(btn_label, key=chat["id"], use_container_width=True):
+                st.session_state.current_chat_id = chat["id"]
+                st.session_state.last_switch_time = time.time()
+                st.rerun()
+
+# RAG Initialization  -------------------------------------------------
 if "RAGInit" not in st.session_state:
     st.session_state.RAGInit = True
 
@@ -98,15 +133,14 @@ if "RAGInit" not in st.session_state:
             RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
         st.rerun()
 
-
 # Current Chat Management ---------------------------------------------
 curr_id = st.session_state.current_chat_id
 curr_chat = st.session_state.chats[curr_id]
 
-# Title ----------------
+# Title
 st.title(curr_chat["title"])
 
-# Display chat messages from history -------
+# Display chat messages from history
 count = 0
 mes = None
 for message in curr_chat["messages"]:
@@ -114,21 +148,29 @@ for message in curr_chat["messages"]:
     if count < len(curr_chat["messages"]) or message["role"] != "assistant" or not curr_chat["streaming"]:
         if message["role"] != "system":
             mes = st.chat_message(message["role"])
-            mes.markdown(message["content"])
+            mes.markdown(getCleanedLatex(message["content"]))
     else:
         curr_chat["temp_bot_ui"] = st.empty()
         if (curr_chat["messages"][-1]["content"] == ""):
             curr_chat["temp_bot_ui"].chat_message("assistant").markdown("...")
         else:
-            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(curr_chat["messages"][-1]["content"])
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(getCleanedLatex(curr_chat["messages"][-1]["content"]))
 
-# Accept user input -------
+# Accept user input
 if prompt := st.chat_input("What is up?"):
     # Display user message
     user_input = st.chat_message("user")
     user_input.markdown(prompt)
     # Record user message
     curr_chat["messages"].append({"role": "user", "content": prompt})
+
+    # Animation for waiting
+    temp_ui = st.empty()
+    curr_chat["temp_bot_ui"] = temp_ui
+    temp_ui.chat_message("assistant").markdown(".")
+    time.sleep(0.8)
+    temp_ui.empty()
+    temp_ui.chat_message("assistant").markdown("..")
 
     curr_chat["stream"] = client.chat.completions.create(
         model = "deepseek-v4-flash",
@@ -145,19 +187,10 @@ if prompt := st.chat_input("What is up?"):
     )
     curr_chat["streaming"] = True
     curr_chat["messages"].append({"role": "assistant", "content": ""})
-
-    # Animation for waiting
-    temp_ui = st.empty()
-    curr_chat["temp_bot_ui"] = temp_ui
-    temp_ui.chat_message("assistant").markdown(".")
-    time.sleep(0.8)
-    temp_ui.empty()
-    temp_ui.chat_message("assistant").markdown("..")
-    time.sleep(0.8)
     temp_ui.empty()
     temp_ui.chat_message("assistant").markdown("...")
 
-# Update output ---------
+# Retrieve from stream
 just_finished = False
 while curr_chat["streaming"] and curr_chat["stream"] is not None:
     try:
@@ -166,7 +199,8 @@ while curr_chat["streaming"] and curr_chat["stream"] is not None:
         if delta:
             curr_chat["messages"][-1]["content"] += delta
             curr_chat["temp_bot_ui"].empty()
-            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(curr_chat["messages"][-1]["content"] + "█")
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(getCleanedLatex(curr_chat["messages"][-1]["content"]) + "█")
+            # Assign title
             if curr_chat["title"] == "New conversation":
                 user_msgs = [m for m in curr_chat["messages"] if m["role"] == "user"]
                 if user_msgs:
@@ -175,11 +209,12 @@ while curr_chat["streaming"] and curr_chat["stream"] is not None:
         curr_chat["stream"] = None
         curr_chat["streaming"] = False
         just_finished = True
-    time.sleep(0.02)
+    # Fastforward if just switched chat
+    if time.time() - st.session_state.last_switch_time > 1.0:
+        time.sleep(0.015)
 
 # Update chat history
 if just_finished:
     with open("chat_history.json", "w", encoding="utf-8") as file:
-        print (st.session_state.chats)
         file.write(json.dumps(st.session_state.chats, ensure_ascii=False, default=lambda o: None))
     st.rerun()

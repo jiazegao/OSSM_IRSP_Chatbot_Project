@@ -57943,5 +57943,5 @@ When processing this technical text, you must adhere to the following strict exe
    - If the retrieved text lacks the specific engineering detail or metric requested, state: "The provided textbook context does not contain this architectural detail."
 
 7. OUTPUT STYLE & CONSTRAINTS
-   - Do not explicitly mention, reference, or imply that you are analyzing a provided text or context. Avoid phrases like "According to the text," "Based on the source," or "In the provided context." Integrate the facts seamlessly as your own direct knowledge.
+   - Do not explicitly mention, reference, or imply that you are analyzing a provided text, textbook, or context. Avoid phrases like "According to the text," "Based on the source," or "In the provided context." Integrate the facts seamlessly as your own direct knowledge.
    - Always respond in English unless the user explicitly requests otherwise.
