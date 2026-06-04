@@ -1,38 +1,41 @@
 import streamlit as st
-import numpy as np
-import random
+import fileinput
 import time
 from openai import OpenAI
 
+# API Settings --------------------------------------------------
 client = OpenAI(base_url = "https://api.deepseek.com",
-                api_key = st.secrets["OPENAI_API_KEY"])
+                api_key = "sk-5a2343a17c5345669c3969a781d922b0")
 
-st.title("ChatGPT(???)")
+# Multi-Chat Management ------------------------------------------------
 
-# Initialize chats
+# Initialize chats -----------
 if "chats" not in st.session_state:
     st.session_state.chats = []
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = -1
-if "streaming" not in st.session_state:
-    st.session_state.streaming = False
 
-def new_chat():
+# Create a new chat -------
+def new_chat(switch = True):
     new_id = len(st.session_state.chats)
     st.session_state.chats.append({
         "id": new_id,
         "title": "New conversation",
         "messages": [{"role": "system", "content": "You are a helpful assistant."}],
         "stream": None,
-        "response": "",
+        "streaming": False,
+        "temp_bot_ui": None
     })
-    if not st.session_state.streaming:
+    if switch:
         st.session_state.current_chat_id = new_id
 
-# Sidebar content
+# Initialize first chat ----------
+if len(st.session_state.chats) == 0:
+    new_chat(True)
+
+# Sidebar content ---------
 with st.sidebar:
-    if st.button("➕ New chat", use_container_width=True):
-        new_chat()
+    st.button("➕ New chat", use_container_width=True, on_click=new_chat)
 
     st.markdown("---")
     st.caption("Your conversations")
@@ -42,51 +45,123 @@ with st.sidebar:
         btn_label = chat["title"]
         if chat["id"] == st.session_state.current_chat_id:
             btn_label = f"**{btn_label}**"
-            curr_chat = chat
         if st.button(btn_label, key=chat["id"], use_container_width=True):
-            if not st.session_state.streaming:
-                st.session_state.current_chat_id = chat["id"]
-                st.rerun()
+            st.session_state.current_chat_id = chat["id"]
+            st.rerun()
 
-curr_id = st.session_state.current_chat_id
-if (len(st.session_state.chats) == 0):
-    new_chat()
+# RAG Settings -------------------------------------------------
+textbooks = []
+textbook_paths = ["Textbooks/CompArch.txt",
+                  "Textbooks/USHist.txt"]
+subject_titles = ["Computer Architecture",
+                  "US History"]
+RAG_IDs = {}
+RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
+                "US History": {"temp": 0.0, "top_p": 1.0}}
+
+def getRAGPreset(item, id):
+    global RAG_IDs, RAG_Settings
+    if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
+        return RAG_Settings[RAG_IDs[id]][item]
+    if item == "temp":
+        return 0.5
+    if item == "top_p":
+        return 1.0
+    if item == "TM":
+        return "disabled"
+    return None
+
+if "RAGInit" not in st.session_state:
+    st.session_state.RAGInit = True
+    for path in textbook_paths:
+        with open(path, "r", encoding="utf-8") as file:
+            textbooks.append(file.read())
+
+    for i in range(len(textbooks)):
+        new_chat(switch = False)
+        st.session_state.chats[-1]["messages"].append({"role": "system", "content": textbooks[i]})
+        st.session_state.chats[-1]["title"] = subject_titles[i]
+        RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
     st.rerun()
 
-# Display chat messages from history on app rerun
-for message in st.session_state.chats[curr_id]["messages"]:
-    if (message["role"] == "user"):
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    else:
-        st.markdown(message["content"])
 
-# Accept user input
+# Current Chat Management ---------------------------------------------
+curr_id = st.session_state.current_chat_id
+curr_chat = st.session_state.chats[curr_id]
+
+# Title ----------------
+st.title(curr_chat["title"])
+
+# Display chat messages from history -------
+count = 0
+mes = None
+for message in curr_chat["messages"]:
+    count += 1
+    if count < len(curr_chat["messages"]) or message["role"] != "assistant" or not curr_chat["streaming"]:
+        if message["role"] != "system":
+            mes = st.chat_message(message["role"])
+            mes.markdown(message["content"])
+    else:
+        curr_chat["temp_bot_ui"] = st.empty()
+        if (curr_chat["messages"][-1]["content"] == ""):
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown("...")
+        else:
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(curr_chat["messages"][-1]["content"])
+
+# Accept user input -------
 if prompt := st.chat_input("What is up?"):
     # Display user message
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    user_input = st.chat_message("user")
+    user_input.markdown(prompt)
     # Record user message
-    st.session_state.chats[curr_id]["messages"].append({"role": "user", "content": prompt})
+    curr_chat["messages"].append({"role": "user", "content": prompt})
 
-# Display assistant response
-if prompt:
-    st.session_state.chats[curr_id]["stream"] = client.chat.completions.create(
+    curr_chat["stream"] = client.chat.completions.create(
         model = "deepseek-v4-flash",
-        messages = [
-            {"role": m["role"], "content": m["content"]}
-            for m in st.session_state.chats[curr_id]["messages"]
-        ],
+        messages = curr_chat["messages"],
         stream = True,
-        reasoning_effort="low",
-        temperature=0.5
+        reasoning_effort=getRAGPreset("RE", curr_id),
+        temperature=getRAGPreset("temp", curr_id),
+        top_p=getRAGPreset("top_p", curr_id),
+        extra_body = {
+            "thinking": {
+                "type": getRAGPreset("TM", curr_id)
+            }
+        }
     )
+    curr_chat["streaming"] = True
+    curr_chat["messages"].append({"role": "assistant", "content": ""})
 
-# Detect if still transmitting
-if not st.session_state.streaming and st.session_state.chats[curr_id]["stream"]:
-    st.session_state.streaming = True
-    st.session_state.chats[curr_id]["response"] = st.write_stream(st.session_state.chats[curr_id]["stream"])
-    st.session_state.streaming = False
-    if st.session_state.chats[curr_id]["response"]:
-        st.session_state.chats[curr_id]["messages"].append({"role": "assistant", "content": st.session_state.chats[curr_id]["response"]})
-    print(st.session_state.chats[curr_id]["response"])
+    # Animation for waiting
+    temp_ui = st.empty()
+    curr_chat["temp_bot_ui"] = temp_ui
+    temp_ui.chat_message("assistant").markdown(".")
+    time.sleep(0.8)
+    temp_ui.empty()
+    temp_ui.chat_message("assistant").markdown("..")
+    time.sleep(0.8)
+    temp_ui.empty()
+    temp_ui.chat_message("assistant").markdown("...")
+
+# Update output ---------
+just_finished = False
+while curr_chat["streaming"] and curr_chat["stream"] is not None:
+    try:
+        chunk = next(curr_chat["stream"])
+        delta = chunk.choices[0].delta.content
+        if delta:
+            curr_chat["messages"][-1]["content"] += delta
+            curr_chat["temp_bot_ui"].empty()
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(curr_chat["messages"][-1]["content"] + "█")
+            if curr_chat["title"] == "New conversation":
+                user_msgs = [m for m in curr_chat["messages"] if m["role"] == "user"]
+                if user_msgs:
+                    curr_chat["title"] = user_msgs[-1]["content"][:28]
+    except StopIteration:
+        curr_chat["stream"] = None
+        curr_chat["streaming"] = False
+        just_finished = True
+    time.sleep(0.02)
+
+if just_finished:
+    st.rerun()
