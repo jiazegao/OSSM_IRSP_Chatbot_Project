@@ -1,5 +1,5 @@
 import streamlit as st
-import fileinput
+import json
 import time
 from openai import OpenAI
 
@@ -29,9 +29,16 @@ def new_chat(switch = True):
     if switch:
         st.session_state.current_chat_id = new_id
 
-# Initialize first chat ----------
+# Retrieve chat history
 if len(st.session_state.chats) == 0:
-    new_chat(True)
+    with open("chat_history.json", "r", encoding="utf-8") as file:
+        try:
+            st.session_state.chats = json.load(file)
+            st.session_state.current_chat_id = 0
+        except json.decoder.JSONDecodeError:
+            st.session_state.chats = []
+            st.session_state.current_chat_id = -1
+            new_chat(True)
 
 # Sidebar content ---------
 with st.sidebar:
@@ -73,16 +80,23 @@ def getRAGPreset(item, id):
 
 if "RAGInit" not in st.session_state:
     st.session_state.RAGInit = True
-    for path in textbook_paths:
-        with open(path, "r", encoding="utf-8") as file:
-            textbooks.append(file.read())
 
-    for i in range(len(textbooks)):
-        new_chat(switch = False)
-        st.session_state.chats[-1]["messages"].append({"role": "system", "content": textbooks[i]})
-        st.session_state.chats[-1]["title"] = subject_titles[i]
-        RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
-    st.rerun()
+    initialized = False
+    for c in st.session_state.chats:
+        if c["title"] == "Computer Architecture" or c["title"] == "US History":
+            initialized = True
+            break
+    if not initialized:
+        for path in textbook_paths:
+            with open(path, "r", encoding="utf-8") as file:
+                textbooks.append(file.read())
+
+        for i in range(len(textbooks)):
+            new_chat(switch = False)
+            st.session_state.chats[-1]["messages"].append({"role": "system", "content": textbooks[i]})
+            st.session_state.chats[-1]["title"] = subject_titles[i]
+            RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
+        st.rerun()
 
 
 # Current Chat Management ---------------------------------------------
@@ -163,5 +177,9 @@ while curr_chat["streaming"] and curr_chat["stream"] is not None:
         just_finished = True
     time.sleep(0.02)
 
+# Update chat history
 if just_finished:
+    with open("chat_history.json", "w", encoding="utf-8") as file:
+        print (st.session_state.chats)
+        file.write(json.dumps(st.session_state.chats, ensure_ascii=False, default=lambda o: None))
     st.rerun()
