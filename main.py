@@ -18,8 +18,8 @@ subject_titles = ["Computer Architecture",
                   "Data Structures"]
 RAG_IDs = {}
 RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
-                "US History": {"temp": 0.0, "top_p": 1.0},
-                "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "max", "TM": "enabled"}}
+                "US History": {"temp": 0.0, "top_p": 1.0, "RE": "low", "TM": "disabled"},
+                "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"}}
 
 # Create a new chat
 def new_chat(switch = True):
@@ -37,15 +37,17 @@ def new_chat(switch = True):
 
 # Retrieve RAG properties
 def getRAGPreset(item, id):
-    global RAG_IDs, RAG_Settings
-    if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
-        return RAG_Settings[RAG_IDs[id]][item]
+    #global RAG_IDs, RAG_Settings
+    #if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
+    #    return RAG_Settings[RAG_IDs[id]][item]
     if item == "temp":
-        return 0.5
+        return 0.0
     if item == "top_p":
         return 1.0
+    if item == "RE":
+        return "high"
     if item == "TM":
-        return "disabled"
+        return "enabled"
     return None
 
 # Cleanup latex notation
@@ -80,11 +82,12 @@ if len(st.session_state.chats) == 0:
 
 # Sidebar content
 with st.sidebar:
+    st.title("Conversations")
     st.button("➕ New chat", use_container_width=True, on_click=new_chat)
 
     # Subject-specific chats
     st.markdown("---")
-    st.caption("Subjects")
+    st.caption("RAG-Assisted Chats")
 
     # Show existing chats, highlight current
     for chat in st.session_state.chats:
@@ -99,7 +102,7 @@ with st.sidebar:
 
     # Personal chats
     st.markdown("---")
-    st.caption("Your conversations")
+    st.caption("Your Conversations")
 
     # Show existing chats, highlight current
     for chat in st.session_state.chats:
