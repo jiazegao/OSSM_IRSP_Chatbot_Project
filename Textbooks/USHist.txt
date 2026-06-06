@@ -86024,7 +86024,7 @@ You must execute your analysis according to these strict behavioral rules:
    - Ensure every sub-question, region, or technical stage requested by the user receives a fully developed, balanced, and structurally complete analysis.
 
 3. INVISIBLE GROUNDING & ORGANIC VOICE
-   - Act as if this knowledge is entirely your own. Never use meta-language or references to the source material (e.g., Avoid "According to the text," "The passage notes," "The text explicitly states").
+   - Act as if this knowledge is entirely your own. Never use meta-language or explicit references to the source material (e.g., Avoid "According to the text," "The passage notes," "The text explicitly states").
    - Do not wrap sentences in block quotes or treat the context as an external document. Seamlessly integrate the facts into your own authoritative prose.
 
 4. STRICT FACTUAL FIDELITY

@@ -18,7 +18,7 @@ subject_titles = ["Computer Architecture",
                   "Data Structures"]
 RAG_IDs = {}
 RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
-                "US History": {"temp": 0.0, "top_p": 1.0, "RE": "low", "TM": "disabled"},
+                "US History": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
                 "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"}}
 
 # Create a new chat
@@ -35,13 +35,22 @@ def new_chat(switch = True):
     if switch:
         st.session_state.current_chat_id = new_id
 
+def extract_text_from_file(file) -> str:
+    from pypdf import PdfReader
+    import io
+    if file.name.endswith(".pdf"):
+        reader = PdfReader(io.BytesIO(file.read()))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    else:
+        return file.read().decode("utf-8")
+
 # Retrieve RAG properties
-def getRAGPreset(item, id):
-    #global RAG_IDs, RAG_Settings
-    #if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
-    #    return RAG_Settings[RAG_IDs[id]][item]
+def get_rag_preset(item, id):
+    global RAG_IDs, RAG_Settings
+    if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
+        return RAG_Settings[RAG_IDs[id]][item]
     if item == "temp":
-        return 0.0
+        return 0.3
     if item == "top_p":
         return 1.0
     if item == "RE":
@@ -51,13 +60,51 @@ def getRAGPreset(item, id):
     return None
 
 # Cleanup latex notation
-def getCleanedLatex(string):
+def get_cleaned_latex(string):
     if not isinstance(string, str):
         return string
     string = re.sub(r'\\{1,2}\[(.*?)\\{1,2}\]', r'$$\1$$', string, flags=re.DOTALL)
     string = re.sub(r'\(\((.*?)\)\)', r'$\1$', string, flags=re.DOTALL)
     string = re.sub(r'\\{1,2}\((.*?)\\{1,2}\)', r'$\1$', string, flags=re.DOTALL)
     return string
+
+@st.cache_resource
+def get_embeddings():
+    from langchain_huggingface import HuggingFaceEmbeddings
+    return HuggingFaceEmbeddings(
+        model_name="all-MiniLM-L6-v2",
+        model_kwargs={"device": "cuda"}
+    )
+
+def build_vectorstore_from_text(text: str):
+    from langchain_community.vectorstores import FAISS
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    chunks = splitter.create_documents([text])
+    return FAISS.from_documents(chunks, get_embeddings())
+
+def get_rag_context(query: str, vectorstores, k: int = 3) -> str:
+    all_docs = []
+    for fname, store in vectorstores.items():
+        docs = store.similarity_search(query, k=k)
+        for doc in docs:
+            # Tag each chunk with its source file
+            all_docs.append(f"[{fname}]\n{doc.page_content}")
+    return "\n\n---\n\n".join(all_docs)
+
+def get_chat_title(text: str):
+    return  client.chat.completions.create(
+        model="deepseek-v4-flash",
+        messages=[{"role": "system", "content": "Generate a title for this conversation in 3 words or less. " +
+                                                "Return only the title, no quotes, no punctuation, no explanation. Prompt: " + text}],
+        stream=False,
+        temperature=0.5,
+        extra_body={
+            "thinking": {
+                "type": "disabled"
+            }
+        }
+    ).choices[0].message.content
 
 # Multi-Chat Management ------------------------------------------------
 
@@ -115,6 +162,25 @@ with st.sidebar:
                 st.session_state.last_switch_time = time.time()
                 st.rerun()
 
+    curr_id = st.session_state.current_chat_id
+    curr_chat = st.session_state.chats[curr_id]
+
+    # Build and cache vectorstore in session state per chat
+    vs_key = f"vectorstore_{curr_id}"
+    if vs_key not in st.session_state:
+        st.session_state[vs_key] = {}
+
+    # File management
+    if vs_key in st.session_state and st.session_state[vs_key]:
+        st.markdown("---")
+        st.caption(f"📎 Files for \"{curr_chat['title']}\"")
+        for fname in list(st.session_state[vs_key].keys()):
+            col1, col2 = st.columns([3, 1])
+            col1.caption(f"📄 {fname[:20]}...")
+            if col2.button("❌", key=f"remove_{curr_id}_{fname}"):
+                del st.session_state[vs_key][fname]
+                st.rerun()
+
 # RAG Initialization  -------------------------------------------------
 if "RAGInit" not in st.session_state:
     st.session_state.RAGInit = True
@@ -137,8 +203,6 @@ if "RAGInit" not in st.session_state:
         st.rerun()
 
 # Current Chat Management ---------------------------------------------
-curr_id = st.session_state.current_chat_id
-curr_chat = st.session_state.chats[curr_id]
 
 # Title
 st.title(curr_chat["title"])
@@ -151,47 +215,85 @@ for message in curr_chat["messages"]:
     if count < len(curr_chat["messages"]) or message["role"] != "assistant" or not curr_chat["streaming"]:
         if message["role"] != "system":
             mes = st.chat_message(message["role"])
-            mes.markdown(getCleanedLatex(message["content"]))
+            mes.markdown(get_cleaned_latex(message["content"]))
     else:
-        curr_chat["temp_bot_ui"] = st.empty()
+        try:
+            curr_chat["temp_bot_ui"].empty()
+        except:
+            curr_chat["temp_bot_ui"] = st.empty()
         if (curr_chat["messages"][-1]["content"] == ""):
             curr_chat["temp_bot_ui"].chat_message("assistant").markdown("...")
         else:
-            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(getCleanedLatex(curr_chat["messages"][-1]["content"]))
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(get_cleaned_latex(curr_chat["messages"][-1]["content"]))
 
 # Accept user input
-if prompt := st.chat_input("What is up?"):
-    # Display user message
-    user_input = st.chat_message("user")
-    user_input.markdown(prompt)
-    # Record user message
-    curr_chat["messages"].append({"role": "user", "content": prompt})
+if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt", "pdf"]):
+    prompt = chat.text
+    uploaded_files = chat.files  # list of uploaded files
 
-    # Animation for waiting
-    temp_ui = st.empty()
-    curr_chat["temp_bot_ui"] = temp_ui
-    temp_ui.chat_message("assistant").markdown(".")
-    time.sleep(0.8)
-    temp_ui.empty()
-    temp_ui.chat_message("assistant").markdown("..")
+    if not prompt:
+        st.error("Please enter a message")
+    else:
+        user_input = st.chat_message("user")
+        user_input.markdown(prompt)
+        curr_chat["messages"].append({"role": "user", "content": prompt})
 
-    curr_chat["stream"] = client.chat.completions.create(
-        model = "deepseek-v4-flash",
-        messages = curr_chat["messages"],
-        stream = True,
-        reasoning_effort=getRAGPreset("RE", curr_id),
-        temperature=getRAGPreset("temp", curr_id),
-        top_p=getRAGPreset("top_p", curr_id),
-        extra_body = {
-            "thinking": {
-                "type": getRAGPreset("TM", curr_id)
+        # Index any newly added files
+        if uploaded_files:
+            new_files = False
+            for file in uploaded_files:
+                if file.name not in st.session_state[vs_key]:
+                    with st.spinner(f"Indexing {file.name}..."):
+                        text = extract_text_from_file(file)  # ← replaces file.read().decode()
+                        st.session_state[vs_key][file.name] = build_vectorstore_from_text(text)
+                    new_files = True
+                else:
+                    st.error("Document exists! Proceeding...")
+            if new_files:
+                st.success("Documents indexed!")
+
+        # ── LangChain injection (personal chats only) ──────────────
+        vs_key = f"vectorstore_{curr_id}"
+        messages_to_send = curr_chat["messages"]  # default: send as-is
+
+        if vs_key in st.session_state and st.session_state[vs_key]:
+            rag_context = get_rag_context(prompt, st.session_state[vs_key])
+            messages_to_send = (
+                    curr_chat["messages"][:-1]
+                    + [{"role": "system", "content": f"Relevant document context:\n{rag_context}"}]
+                    + [curr_chat["messages"][-1]]
+            )
+
+        # Animation for waiting
+        temp_ui = st.empty()
+        curr_chat["temp_bot_ui"] = temp_ui
+        temp_ui.chat_message("assistant").markdown(".")
+        time.sleep(0.8)
+        temp_ui.empty()
+        temp_ui.chat_message("assistant").markdown("..")
+
+        curr_chat["stream"] = client.chat.completions.create(
+            model = "deepseek-v4-flash",
+            messages = messages_to_send,
+            stream = True,
+            reasoning_effort=get_rag_preset("RE", curr_id),
+            temperature=get_rag_preset("temp", curr_id),
+            top_p=get_rag_preset("top_p", curr_id),
+            extra_body = {
+                "thinking": {
+                    "type": get_rag_preset("TM", curr_id)
+                }
             }
-        }
-    )
-    curr_chat["streaming"] = True
-    curr_chat["messages"].append({"role": "assistant", "content": ""})
-    temp_ui.empty()
-    temp_ui.chat_message("assistant").markdown("...")
+        )
+
+        curr_chat["streaming"] = True
+        curr_chat["messages"].append({"role": "assistant", "content": ""})
+        temp_ui.empty()
+        temp_ui.chat_message("assistant").markdown("...")
+
+        if curr_chat["title"] == "New conversation":
+            curr_chat["title"] = get_chat_title(curr_chat["messages"][-2]["content"])
+        st.rerun()
 
 # Retrieve from stream
 just_finished = False
@@ -202,18 +304,13 @@ while curr_chat["streaming"] and curr_chat["stream"] is not None:
         if delta:
             curr_chat["messages"][-1]["content"] += delta
             curr_chat["temp_bot_ui"].empty()
-            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(getCleanedLatex(curr_chat["messages"][-1]["content"]) + "█")
-            # Assign title
-            if curr_chat["title"] == "New conversation":
-                user_msgs = [m for m in curr_chat["messages"] if m["role"] == "user"]
-                if user_msgs:
-                    curr_chat["title"] = user_msgs[-1]["content"][:28]
+            curr_chat["temp_bot_ui"].chat_message("assistant").markdown(get_cleaned_latex(curr_chat["messages"][-1]["content"]) + "█")
     except StopIteration:
         curr_chat["stream"] = None
         curr_chat["streaming"] = False
         just_finished = True
     # Fastforward if just switched chat
-    if time.time() - st.session_state.last_switch_time > 1.0:
+    if time.time() - st.session_state.last_switch_time > 3.0:
         time.sleep(0.015)
 
 # Update chat history
