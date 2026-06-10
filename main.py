@@ -3,20 +3,25 @@ import streamlit as st
 import json
 import time
 from openai import OpenAI
+from pathlib import Path
+from pypdf import PdfReader
+import io
+from langchain_community.vectorstores import FAISS
 
 # API Settings ----------------------------------------------------
 client = OpenAI(base_url = "https://api.deepseek.com",
                 api_key = st.secrets["OPENAI_API_KEY"])
 
 # Functions and Constants -------------------------------------------
-textbooks = []
-textbook_paths = ["Textbooks/CompArch.txt",
-                  "Textbooks/USHist.txt",
-                  "Textbooks/DS.txt"]
+textbook_paths = ["textbooks/CompArch.txt",
+                  "textbooks/USHist.txt",
+                  "textbooks/DS.txt"]
+prompt_paths = ["prompts/CompArchPrompt.txt",
+                "prompts/USHistPrompt.txt",
+                "prompts/DSPrompt.txt"]
 subject_titles = ["Computer Architecture",
                   "US History",
                   "Data Structures"]
-RAG_IDs = {}
 RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
                 "US History": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
                 "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"}}
@@ -36,8 +41,6 @@ def new_chat(switch = True):
         st.session_state.current_chat_id = new_id
 
 def extract_text_from_file(file) -> str:
-    from pypdf import PdfReader
-    import io
     if file.name.endswith(".pdf"):
         reader = PdfReader(io.BytesIO(file.read()))
         return "\n".join(page.extract_text() or "" for page in reader.pages)
@@ -46,9 +49,9 @@ def extract_text_from_file(file) -> str:
 
 # Retrieve RAG properties
 def get_rag_preset(item, id):
-    global RAG_IDs, RAG_Settings
-    if id in RAG_IDs.keys() and item in RAG_IDs[id].keys():
-        return RAG_Settings[RAG_IDs[id]][item]
+    global RAG_Settings
+    if id in st.session_state.RAG_IDs.keys() and item in RAG_Settings[st.session_state.RAG_IDs[id]].keys():
+        return RAG_Settings[st.session_state.RAG_IDs[id]][item]
     if item == "temp":
         return 0.3
     if item == "top_p":
@@ -76,14 +79,13 @@ def get_embeddings():
         model_kwargs={"device": "cuda"}
     )
 
-def build_vectorstore_from_text(text: str):
-    from langchain_community.vectorstores import FAISS
+def build_vectorstore_from_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200):
     from langchain_text_splitters import RecursiveCharacterTextSplitter
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = splitter.create_documents([text])
     return FAISS.from_documents(chunks, get_embeddings())
 
-def get_rag_context(query: str, vectorstores, k: int = 3) -> str:
+def get_rag_context(query: str, vectorstores, k: int = 4) -> str:
     all_docs = []
     for fname, store in vectorstores.items():
         docs = store.similarity_search(query, k=k)
@@ -126,6 +128,19 @@ if len(st.session_state.chats) == 0:
             st.session_state.chats = []
             st.session_state.current_chat_id = -1
             new_chat(True)
+    # Retrieve documents
+    for chat in st.session_state.chats:
+        dir_path = Path(f"user_files/{chat["title"]}")
+        vs_key = f"vectorstore_{chat["id"]}"
+        # Check if it exists and is a directory
+        if dir_path.is_dir():
+            st.session_state[vs_key] = {}
+            for f_dir in dir_path.iterdir():
+                if f_dir.name.endswith(".txt"):
+                    st.session_state[vs_key][f_dir.name] = build_vectorstore_from_text(open(f_dir, "r", encoding="utf-8").read())
+                elif f_dir.name.endswith(".pdf"):
+                    st.session_state[vs_key][f_dir.name] = build_vectorstore_from_text("\n".join(page.extract_text() or "" for page in PdfReader(open(f_dir, "r").read()).pages))
+    st.rerun()
 
 # Sidebar content
 with st.sidebar:
@@ -184,23 +199,34 @@ with st.sidebar:
 # RAG Initialization  -------------------------------------------------
 if "RAGInit" not in st.session_state:
     st.session_state.RAGInit = True
+    st.session_state.RAG_IDs = {}
+    st.session_state.textbook_dbs = {}
+    st.session_state.RAG_prompts = {}
 
     initialized = False
     for c in st.session_state.chats:
-        if c["title"] == "Computer Architecture" or c["title"] == "US History":
+        if c["title"] in subject_titles:
             initialized = True
-            break
-    if not initialized:
-        for path in textbook_paths:
-            with open(path, "r", encoding="utf-8") as file:
-                textbooks.append(file.read())
+            st.toast("Loading " + c["title"] + " database ...")
+            st.session_state.textbook_dbs[c["title"]] = FAISS.load_local(
+                folder_path="my_local_faiss_dir",
+                embeddings=get_embeddings(),
+                allow_dangerous_deserialization=True
+            )
 
-        for i in range(len(textbooks)):
-            new_chat(switch = False)
-            st.session_state.chats[-1]["messages"].append({"role": "system", "content": textbooks[i]})
-            st.session_state.chats[-1]["title"] = subject_titles[i]
-            RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
-        st.rerun()
+    if not initialized:
+        for i in range(len(textbook_paths)):
+            title = subject_titles[i]
+            st.session_state.RAG_prompts[title] = open(prompt_paths[i], "r").read()
+            new_chat(switch=False)
+            st.session_state.chats[-1]["title"] = title
+            st.session_state.RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
+
+            with open(textbook_paths[i], "r", encoding="utf-8") as file:
+                st.toast("Pre-processing " + subject_titles[i] + " database ...")
+                st.session_state.textbook_dbs[title] = build_vectorstore_from_text(file.read(), 2500, 200)
+                st.session_state.textbook_dbs[title].save_local(f"textbook_dbs/{title}.db")
+    st.rerun()
 
 # Current Chat Management ---------------------------------------------
 
@@ -246,13 +272,19 @@ if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt"
                     with st.spinner(f"Indexing {file.name}..."):
                         text = extract_text_from_file(file)  # ← replaces file.read().decode()
                         st.session_state[vs_key][file.name] = build_vectorstore_from_text(text)
+                        # Save file locally
+                        save_dir = Path(f"user_files/{curr_chat["title"]}")
+                        save_dir.mkdir(parents=True, exist_ok=True)
+                        destination_path = save_dir / file.name
+                        with open(destination_path, "wb") as f:
+                            f.write(file.getbuffer())  # getbuffer() extracts the raw bytes efficiently
                     new_files = True
                 else:
                     st.error("Document exists! Proceeding...")
             if new_files:
                 st.success("Documents indexed!")
 
-        # ── LangChain injection (personal chats only) ──────────────
+        # LangChain injection
         vs_key = f"vectorstore_{curr_id}"
         messages_to_send = curr_chat["messages"]  # default: send as-is
 
@@ -260,7 +292,17 @@ if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt"
             rag_context = get_rag_context(prompt, st.session_state[vs_key])
             messages_to_send = (
                     curr_chat["messages"][:-1]
-                    + [{"role": "system", "content": f"Relevant document context:\n{rag_context}"}]
+                    + [{"role": "system", "content": f"Relevant user document context:\n{rag_context}"}]
+                    + [curr_chat["messages"][-1]]
+            )
+
+        # Additional injection for subject-specific knowledge and prompts
+        if curr_chat["title"] in subject_titles:
+            rag_context = get_rag_context(prompt, {(curr_chat["title"]+" Resource"): st.session_state.textbook_dbs[curr_chat["title"]]}, 6)
+            messages_to_send = (
+                    curr_chat["messages"][:-1]
+                    + [{"role": "system", "content": f"Relevant system document context:\n{rag_context}"}]
+                    + [{"role": "system", "content": st.session_state.RAG_prompts[curr_chat["title"]]}]
                     + [curr_chat["messages"][-1]]
             )
 
