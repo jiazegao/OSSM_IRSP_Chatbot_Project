@@ -7,6 +7,7 @@ from pathlib import Path
 from pypdf import PdfReader
 import io
 from langchain_community.vectorstores import FAISS
+import os
 
 # API Settings ----------------------------------------------------
 client = OpenAI(base_url = "https://api.deepseek.com",
@@ -79,13 +80,13 @@ def get_embeddings():
         model_kwargs={"device": "cuda"}
     )
 
-def build_vectorstore_from_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200):
+def build_vectorstore_from_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50):
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = splitter.create_documents([text])
     return FAISS.from_documents(chunks, get_embeddings())
 
-def get_rag_context(query: str, vectorstores, k: int = 4) -> str:
+def get_rag_context(query: str, vectorstores, k: int = 10) -> str:
     all_docs = []
     for fname, store in vectorstores.items():
         docs = store.similarity_search(query, k=k)
@@ -194,6 +195,10 @@ with st.sidebar:
             col1.caption(f"📄 {fname[:20]}...")
             if col2.button("❌", key=f"remove_{curr_id}_{fname}"):
                 del st.session_state[vs_key][fname]
+                try:
+                    os.remove(f"user_files/{curr_chat["title"]}/{fname}")
+                except:
+                    pass
                 st.rerun()
 
 # RAG Initialization  -------------------------------------------------
@@ -204,28 +209,32 @@ if "RAGInit" not in st.session_state:
     st.session_state.RAG_prompts = {}
 
     initialized = False
+    i = 0
     for c in st.session_state.chats:
         if c["title"] in subject_titles:
             initialized = True
+            # Initialize prompt and ID information
+            st.session_state.RAG_prompts[c["title"]] = open(prompt_paths[i], "r").read()
+            st.session_state.RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
+            # Retrieve database
             st.toast("Loading " + c["title"] + " database ...")
             st.session_state.textbook_dbs[c["title"]] = FAISS.load_local(
-                folder_path="my_local_faiss_dir",
+                folder_path=f"textbook_dbs/{c["title"]}",
                 embeddings=get_embeddings(),
                 allow_dangerous_deserialization=True
             )
+            i += 1
 
     if not initialized:
         for i in range(len(textbook_paths)):
             title = subject_titles[i]
-            st.session_state.RAG_prompts[title] = open(prompt_paths[i], "r").read()
             new_chat(switch=False)
             st.session_state.chats[-1]["title"] = title
-            st.session_state.RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
 
             with open(textbook_paths[i], "r", encoding="utf-8") as file:
                 st.toast("Pre-processing " + subject_titles[i] + " database ...")
-                st.session_state.textbook_dbs[title] = build_vectorstore_from_text(file.read(), 2500, 200)
-                st.session_state.textbook_dbs[title].save_local(f"textbook_dbs/{title}.db")
+                st.session_state.textbook_dbs[title] = build_vectorstore_from_text(file.read(), 1500, 100)
+                st.session_state.textbook_dbs[title].save_local(f"textbook_dbs/{title}")
     st.rerun()
 
 # Current Chat Management ---------------------------------------------
@@ -272,12 +281,6 @@ if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt"
                     with st.spinner(f"Indexing {file.name}..."):
                         text = extract_text_from_file(file)  # ← replaces file.read().decode()
                         st.session_state[vs_key][file.name] = build_vectorstore_from_text(text)
-                        # Save file locally
-                        save_dir = Path(f"user_files/{curr_chat["title"]}")
-                        save_dir.mkdir(parents=True, exist_ok=True)
-                        destination_path = save_dir / file.name
-                        with open(destination_path, "wb") as f:
-                            f.write(file.getbuffer())  # getbuffer() extracts the raw bytes efficiently
                     new_files = True
                 else:
                     st.error("Document exists! Proceeding...")
@@ -291,19 +294,19 @@ if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt"
         if vs_key in st.session_state and st.session_state[vs_key]:
             rag_context = get_rag_context(prompt, st.session_state[vs_key])
             messages_to_send = (
-                    curr_chat["messages"][:-1]
+                    messages_to_send[:-1]
                     + [{"role": "system", "content": f"Relevant user document context:\n{rag_context}"}]
-                    + [curr_chat["messages"][-1]]
+                    + [messages_to_send[-1]]
             )
 
         # Additional injection for subject-specific knowledge and prompts
         if curr_chat["title"] in subject_titles:
-            rag_context = get_rag_context(prompt, {(curr_chat["title"]+" Resource"): st.session_state.textbook_dbs[curr_chat["title"]]}, 6)
+            rag_context = get_rag_context(prompt, {(curr_chat["title"]+" Resource"): st.session_state.textbook_dbs[curr_chat["title"]]}, 10)
             messages_to_send = (
-                    curr_chat["messages"][:-1]
+                    messages_to_send[:-1]
                     + [{"role": "system", "content": f"Relevant system document context:\n{rag_context}"}]
                     + [{"role": "system", "content": st.session_state.RAG_prompts[curr_chat["title"]]}]
-                    + [curr_chat["messages"][-1]]
+                    + [messages_to_send[-1]]
             )
 
         # Animation for waiting
@@ -333,8 +336,21 @@ if chat := st.chat_input("What is up?", accept_file="multiple", file_type=["txt"
         temp_ui.empty()
         temp_ui.chat_message("assistant").markdown("...")
 
+
         if curr_chat["title"] == "New conversation":
             curr_chat["title"] = get_chat_title(curr_chat["messages"][-2]["content"])
+
+        # Save files locally
+        if uploaded_files:
+            for file in uploaded_files:
+                if file.name in st.session_state[vs_key]:
+                    # Save file locally
+                    save_dir = Path(f"user_files/{curr_chat["title"]}")
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    destination_path = save_dir / file.name
+                    with open(destination_path, "wb") as f:
+                        f.write(file.getbuffer())  # getbuffer() extracts the raw bytes efficiently
+
         st.rerun()
 
 # Retrieve from stream
