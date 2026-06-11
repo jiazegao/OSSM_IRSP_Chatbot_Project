@@ -14,15 +14,15 @@ client = OpenAI(base_url = "https://api.deepseek.com",
                 api_key = st.secrets["OPENAI_API_KEY"])
 
 # Functions and Constants -------------------------------------------
-textbook_paths = ["textbooks/CompArch.txt",
-                  "textbooks/USHist.txt",
-                  "textbooks/DS.txt"]
-prompt_paths = ["prompts/CompArchPrompt.txt",
-                "prompts/USHistPrompt.txt",
-                "prompts/DSPrompt.txt"]
 subject_titles = ["Computer Architecture",
                   "US History",
                   "Data Structures"]
+textbook_paths = {"Computer Architecture": "textbooks/CompArch.txt",
+                  "US History": "textbooks/USHist.txt",
+                  "Data Structures": "textbooks/DS.txt"}
+prompt_paths = {"Computer Architecture": "prompts/CompArchPrompt.txt",
+                "US History": "prompts/USHistPrompt.txt",
+                "Data Structures": "prompts/DSPrompt.txt"}
 RAG_Settings = {"Computer Architecture": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
                 "US History": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"},
                 "Data Structures": {"temp": 0.0, "top_p": 1.0, "RE": "high", "TM": "enabled"}}
@@ -209,13 +209,9 @@ if "RAGInit" not in st.session_state:
     st.session_state.RAG_prompts = {}
 
     initialized = False
-    i = 0
     for c in st.session_state.chats:
         if c["title"] in subject_titles:
             initialized = True
-            # Initialize prompt and ID information
-            st.session_state.RAG_prompts[c["title"]] = open(prompt_paths[i], "r").read()
-            st.session_state.RAG_IDs[st.session_state.chats[-1]["id"]] = st.session_state.chats[-1]["title"]
             # Retrieve database
             st.toast("Loading " + c["title"] + " database ...")
             st.session_state.textbook_dbs[c["title"]] = FAISS.load_local(
@@ -223,18 +219,23 @@ if "RAGInit" not in st.session_state:
                 embeddings=get_embeddings(),
                 allow_dangerous_deserialization=True
             )
-            i += 1
 
     if not initialized:
-        for i in range(len(textbook_paths)):
-            title = subject_titles[i]
+        for title in subject_titles:
             new_chat(switch=False)
             st.session_state.chats[-1]["title"] = title
 
-            with open(textbook_paths[i], "r", encoding="utf-8") as file:
-                st.toast("Pre-processing " + subject_titles[i] + " database ...")
+            with open(textbook_paths[title], "r", encoding="utf-8") as file:
+                st.toast("Pre-processing " + title + " database ...")
                 st.session_state.textbook_dbs[title] = build_vectorstore_from_text(file.read(), 1500, 100)
                 st.session_state.textbook_dbs[title].save_local(f"textbook_dbs/{title}")
+
+    # Assign RAG IDs and Prompts
+    for c in st.session_state.chats:
+        if c["title"] in subject_titles:
+            st.session_state.RAG_prompts[c["title"]] = open(prompt_paths[c["title"]], "r").read()
+            st.session_state.RAG_IDs[c["id"]] = c["title"]
+
     st.rerun()
 
 # Current Chat Management ---------------------------------------------
